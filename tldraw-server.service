@@ -1,0 +1,15 @@
+[Unit]
+Description=TLDraw Sandbox Server
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/tldraw-sandbox
+Environment=PATH=/home/exedev/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/exedev/.local/share/fnm/aliases/default/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
