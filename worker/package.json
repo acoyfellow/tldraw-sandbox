@@ -1,0 +1,16 @@
+{
+  "name": "tldraw-sandbox-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.7.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.16.0",
+    "typescript": "^5.8.3"
+  }
+}

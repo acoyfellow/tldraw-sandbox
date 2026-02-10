@@ -10,6 +10,9 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
+// Cloudflare Worker API URL - change this to your deployed worker URL
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787'
+
 // Shape type name
 const TERMINAL_SHAPE_TYPE = 'terminal' as const
 
@@ -23,11 +26,78 @@ declare module 'tldraw' {
       output: string[]
       isRunning: boolean
       title: string
+      sandboxId: string
     }
   }
 }
 
 export type ITerminalShape = TLShape<typeof TERMINAL_SHAPE_TYPE>
+
+// API functions for Cloudflare Sandbox
+async function executeCode(code: string, sandboxId: string): Promise<{
+  success: boolean
+  stdout?: string
+  stderr?: string
+  error?: string
+}> {
+  try {
+    const response = await fetch(`${WORKER_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, sandboxId }),
+    })
+    return await response.json()
+  } catch (error) {
+    // Fallback to local execution if worker is not available
+    console.warn('Worker not available, using local execution:', error)
+    return executeLocally(code)
+  }
+}
+
+async function generateCode(): Promise<{ success: boolean; code?: string; error?: string }> {
+  try {
+    const response = await fetch(`${WORKER_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    return await response.json()
+  } catch (error) {
+    // Fallback to local generation
+    console.warn('Worker not available, using local generation:', error)
+    return generateLocally()
+  }
+}
+
+// Fallback local execution
+function executeLocally(code: string): { success: boolean; stdout?: string; stderr?: string; error?: string } {
+  try {
+    const output: string[] = []
+    const mockConsole = {
+      log: (...args: unknown[]) => {
+        output.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '))
+      },
+      error: (...args: unknown[]) => {
+        output.push('[ERROR] ' + args.map(a => String(a)).join(' '))
+      },
+    }
+    const fn = new Function('console', code)
+    fn(mockConsole)
+    return { success: true, stdout: output.join('\n') }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+// Fallback local code generation
+function generateLocally(): { success: boolean; code: string } {
+  const examples = [
+    `// Fibonacci sequence\nfunction fib(n) {\n  if (n <= 1) return n;\n  return fib(n - 1) + fib(n - 2);\n}\n\nconsole.log("Fibonacci sequence:");\nfor (let i = 0; i < 10; i++) {\n  console.log(\`fib(\${i}) = \${fib(i)}\`);\n}`,
+    `// Array operations\nconst numbers = [1, 2, 3, 4, 5];\nconst doubled = numbers.map(n => n * 2);\nconst sum = numbers.reduce((a, b) => a + b, 0);\nconsole.log("Original:", numbers);\nconsole.log("Doubled:", doubled);\nconsole.log("Sum:", sum);`,
+    `// Prime numbers\nfunction isPrime(n) {\n  if (n < 2) return false;\n  for (let i = 2; i <= Math.sqrt(n); i++) {\n    if (n % i === 0) return false;\n  }\n  return true;\n}\nconst primes = [];\nfor (let i = 2; i < 50; i++) {\n  if (isPrime(i)) primes.push(i);\n}\nconsole.log("Primes under 50:", primes.join(", "));`,
+  ]
+  return { success: true, code: examples[Math.floor(Math.random() * examples.length)] }
+}
 
 // Terminal component that renders inside the shape
 function TerminalComponent({
@@ -41,8 +111,8 @@ function TerminalComponent({
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [useCloudflare, setUseCloudflare] = useState(true)
   
-  // Use shape.props.code directly - it comes from TLDraw's store
   const code = shape.props.code
 
   useEffect(() => {
@@ -76,16 +146,13 @@ function TerminalComponent({
     term.open(terminalRef.current)
     
     setTimeout(() => {
-      try {
-        fitAddon.fit()
-      } catch (e) {
-        // ignore fit errors
-      }
+      try { fitAddon.fit() } catch (e) { /* ignore */ }
     }, 100)
 
     term.writeln('\x1b[1;34m=== Cloudflare Sandbox Terminal ===\x1b[0m')
     term.writeln('')
-    term.writeln('\x1b[33mReady to execute TypeScript code...\x1b[0m')
+    term.writeln(`\x1b[90mSandbox ID: ${shape.props.sandboxId}\x1b[0m`)
+    term.writeln('\x1b[33mReady to execute code...\x1b[0m')
     term.writeln('')
 
     termRef.current = term
@@ -97,131 +164,85 @@ function TerminalComponent({
     }
   }, [])
 
-  // Resize terminal when shape size changes
   useEffect(() => {
     if (fitAddonRef.current && termRef.current) {
       setTimeout(() => {
-        try {
-          fitAddonRef.current?.fit()
-        } catch (e) {
-          // ignore
-        }
+        try { fitAddonRef.current?.fit() } catch (e) { /* ignore */ }
       }, 50)
     }
   }, [shape.props.w, shape.props.h])
 
-  const executeCode = useCallback(async () => {
+  const handleExecute = useCallback(async () => {
     if (!termRef.current || !code.trim()) return
 
     const term = termRef.current
     term.writeln('')
-    term.writeln('\x1b[1;36m$ ts-node execute\x1b[0m')
+    term.writeln(`\x1b[1;36m$ ${useCloudflare ? 'cf-sandbox' : 'local'} execute\x1b[0m`)
     term.writeln('\x1b[90m-----------------------------------\x1b[0m')
 
     onUpdateShape({ isRunning: true })
-    const newOutput: string[] = []
 
     try {
-      const mockConsole = {
-        log: (...args: unknown[]) => {
-          const line = args.map(a => 
-            typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
-          ).join(' ')
-          newOutput.push(line)
-          term.writeln(`\x1b[37m${line}\x1b[0m`)
-        },
-        error: (...args: unknown[]) => {
-          const line = args.map(a => String(a)).join(' ')
-          newOutput.push(`[ERROR] ${line}`)
-          term.writeln(`\x1b[31m${line}\x1b[0m`)
-        },
+      const result = useCloudflare 
+        ? await executeCode(code, shape.props.sandboxId)
+        : executeLocally(code)
+
+      if (result.success) {
+        if (result.stdout) {
+          result.stdout.split('\n').forEach(line => {
+            term.writeln(`\x1b[37m${line}\x1b[0m`)
+          })
+        }
+        if (result.stderr) {
+          result.stderr.split('\n').forEach(line => {
+            term.writeln(`\x1b[33m${line}\x1b[0m`)
+          })
+        }
+        term.writeln('')
+        term.writeln('\x1b[1;32m✓ Execution completed\x1b[0m')
+      } else {
+        term.writeln(`\x1b[1;31m✗ Error: ${result.error}\x1b[0m`)
       }
 
-      // Very basic TypeScript -> JS (just strips types for demo)
-      const jsCode = code
-        .replace(/:\s*\w+(?:\[\])?(?:\s*\|\s*\w+)*/g, '') // Remove type annotations
-        .replace(/interface\s+\w+\s*\{[^}]*\}/g, '') // Remove interfaces
-        .replace(/type\s+\w+\s*=\s*[^;]+;/g, '') // Remove type aliases
-        .replace(/<\w+>/g, '') // Remove generics
-
-      const fn = new Function('console', jsCode)
-      await fn(mockConsole)
-
-      term.writeln('')
-      term.writeln('\x1b[1;32m✓ Execution completed\x1b[0m')
-      
-      onUpdateShape({ output: [...shape.props.output, ...newOutput], isRunning: false })
+      onUpdateShape({ isRunning: false })
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
       term.writeln(`\x1b[1;31m✗ Error: ${errorMsg}\x1b[0m`)
       onUpdateShape({ isRunning: false })
     }
-  }, [code, onUpdateShape, shape.props.output])
+  }, [code, onUpdateShape, shape.props.sandboxId, useCloudflare])
 
-  const generateAICode = useCallback(async () => {
+  const handleGenerate = useCallback(async () => {
     setIsGenerating(true)
     const term = termRef.current
     if (term) {
       term.writeln('')
-      term.writeln('\x1b[1;35m🤖 Generating AI code...\x1b[0m')
+      term.writeln('\x1b[1;35m🤖 Generating code...\x1b[0m')
     }
 
-    // Simulate AI generation
-    await new Promise(r => setTimeout(r, 800))
-    
-    const examples = [
-      `// Fibonacci sequence
-const fib = (n) => n <= 1 ? n : fib(n-1) + fib(n-2);
-console.log("Fibonacci sequence:");
-for (let i = 0; i < 10; i++) {
-  console.log("fib(" + i + ") = " + fib(i));
-}`,
-      `// Array manipulation
-const numbers = [1, 2, 3, 4, 5];
-const doubled = numbers.map(n => n * 2);
-const sum = numbers.reduce((a, b) => a + b, 0);
-console.log("Original:", numbers);
-console.log("Doubled:", doubled);
-console.log("Sum:", sum);`,
-      `// Object operations
-const user = { name: "Alice", age: 30 };
-const updated = { ...user, city: "NYC" };
-console.log("User:", user);
-console.log("Updated:", updated);
-console.log("Keys:", Object.keys(updated));`,
-      `// Async simulation
-console.log("Starting process...");
-console.log("Step 1: Initialize");
-console.log("Step 2: Process data");
-console.log("Step 3: Complete!");
-console.log("Result:", { status: "success" });`,
-      `// Prime numbers
-function isPrime(n) {
-  if (n < 2) return false;
-  for (let i = 2; i <= Math.sqrt(n); i++) {
-    if (n % i === 0) return false;
-  }
-  return true;
-}
-console.log("Primes under 50:");
-const primes = [];
-for (let i = 2; i < 50; i++) {
-  if (isPrime(i)) primes.push(i);
-}
-console.log(primes.join(", "));`,
-    ]
-    
-    const newCode = examples[Math.floor(Math.random() * examples.length)]
-    onUpdateShape({ code: newCode })
-    
-    if (term) {
-      term.writeln('\x1b[1;32m✓ Code generated!\x1b[0m')
+    try {
+      const result = useCloudflare ? await generateCode() : generateLocally()
+      
+      if (result.success && result.code) {
+        onUpdateShape({ code: result.code })
+        if (term) {
+          term.writeln('\x1b[1;32m✓ Code generated!\x1b[0m')
+        }
+      } else {
+        if (term) {
+          term.writeln(`\x1b[1;31m✗ Generation failed\x1b[0m`)
+        }
+      }
+    } catch (error) {
+      if (term) {
+        term.writeln(`\x1b[1;31m✗ Error generating code\x1b[0m`)
+      }
     }
     
     setIsGenerating(false)
-  }, [onUpdateShape])
+  }, [onUpdateShape, useCloudflare])
 
-  const clearTerminal = useCallback(() => {
+  const handleClear = useCallback(() => {
     if (termRef.current) {
       termRef.current.clear()
       termRef.current.writeln('\x1b[33mTerminal cleared.\x1b[0m')
@@ -282,7 +303,23 @@ console.log(primes.join(", "));`,
           }}
           placeholder="Terminal"
         />
-        <span style={{ color: '#6c7086', fontSize: 10 }}>CF Sandbox</span>
+        <button
+          onClick={() => setUseCloudflare(!useCloudflare)}
+          onPointerDown={stopEvent}
+          style={{
+            padding: '2px 6px',
+            backgroundColor: useCloudflare ? '#fab387' : '#45475a',
+            color: useCloudflare ? '#1e1e2e' : '#cdd6f4',
+            border: 'none',
+            borderRadius: 3,
+            cursor: 'pointer',
+            fontSize: 9,
+            fontWeight: 600,
+          }}
+          title={useCloudflare ? 'Using Cloudflare Sandbox' : 'Using local execution'}
+        >
+          {useCloudflare ? '☁️ CF' : '💻 Local'}
+        </button>
       </div>
 
       {/* Code editor */}
@@ -292,7 +329,7 @@ console.log(primes.join(", "));`,
           onChange={(e) => onUpdateShape({ code: e.target.value })}
           onPointerDown={stopEvent}
           onTouchStart={stopEvent}
-          placeholder="// Write TypeScript code here..."
+          placeholder="// Write JavaScript/TypeScript code here..."
           style={{
             width: '100%',
             height: 120,
@@ -316,7 +353,7 @@ console.log(primes.join(", "));`,
           }}
         >
           <button
-            onClick={executeCode}
+            onClick={handleExecute}
             onPointerDown={stopEvent}
             disabled={shape.props.isRunning || !code.trim()}
             style={{
@@ -333,7 +370,7 @@ console.log(primes.join(", "));`,
             {shape.props.isRunning ? '⏳ Running...' : '▶ Run'}
           </button>
           <button
-            onClick={generateAICode}
+            onClick={handleGenerate}
             onPointerDown={stopEvent}
             disabled={isGenerating}
             style={{
@@ -350,7 +387,7 @@ console.log(primes.join(", "));`,
             {isGenerating ? '🤖 ...' : '🤖 AI'}
           </button>
           <button
-            onClick={clearTerminal}
+            onClick={handleClear}
             onPointerDown={stopEvent}
             style={{
               padding: '5px 10px',
@@ -392,16 +429,18 @@ export class TerminalShapeUtil extends BaseBoxShapeUtil<ITerminalShape> {
     output: T.arrayOf(T.string),
     isRunning: T.boolean,
     title: T.string,
+    sandboxId: T.string,
   }
 
   getDefaultProps(): ITerminalShape['props'] {
     return {
-      w: 480,
-      h: 420,
-      code: '// Write your TypeScript code here\nconsole.log("Hello from Cloudflare Sandbox!");',
+      w: 500,
+      h: 450,
+      code: '// Write your code here\nconsole.log("Hello from Cloudflare Sandbox!");',
       output: [],
       isRunning: false,
       title: 'Sandbox Terminal',
+      sandboxId: `sandbox-${Math.random().toString(36).slice(2, 8)}`,
     }
   }
 
