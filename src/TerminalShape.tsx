@@ -54,12 +54,12 @@ async function executeCode(code: string, sandboxId: string): Promise<{
   }
 }
 
-async function generateCode(): Promise<{ success: boolean; code?: string; error?: string }> {
+async function generateCode(prompt?: string): Promise<{ success: boolean; code?: string; error?: string }> {
   try {
     const response = await fetch(`${WORKER_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ prompt }),
     })
     return await response.json()
   } catch (error) {
@@ -112,6 +112,8 @@ function TerminalComponent({
   const fitAddonRef = useRef<FitAddon | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [useCloudflare, setUseCloudflare] = useState(true)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [showPromptInput, setShowPromptInput] = useState(false)
   
   const code = shape.props.code
 
@@ -212,16 +214,21 @@ function TerminalComponent({
     }
   }, [code, onUpdateShape, shape.props.sandboxId, useCloudflare])
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (prompt?: string) => {
     setIsGenerating(true)
+    setShowPromptInput(false)
     const term = termRef.current
     if (term) {
       term.writeln('')
-      term.writeln('\x1b[1;35m🤖 Generating code...\x1b[0m')
+      if (prompt) {
+        term.writeln(`\x1b[1;35m🤖 Generating: "${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}"\x1b[0m`)
+      } else {
+        term.writeln('\x1b[1;35m🤖 Generating code...\x1b[0m')
+      }
     }
 
     try {
-      const result = useCloudflare ? await generateCode() : generateLocally()
+      const result = useCloudflare ? await generateCode(prompt) : generateLocally()
       
       if (result.success && result.code) {
         onUpdateShape({ code: result.code })
@@ -239,6 +246,7 @@ function TerminalComponent({
       }
     }
     
+    setAiPrompt('')
     setIsGenerating(false)
   }, [onUpdateShape, useCloudflare])
 
@@ -370,7 +378,7 @@ function TerminalComponent({
             {shape.props.isRunning ? '⏳ Running...' : '▶ Run'}
           </button>
           <button
-            onClick={handleGenerate}
+            onClick={() => showPromptInput ? handleGenerate(aiPrompt || undefined) : setShowPromptInput(true)}
             onPointerDown={stopEvent}
             disabled={isGenerating}
             style={{
@@ -403,6 +411,67 @@ function TerminalComponent({
             Clear
           </button>
         </div>
+        
+        {/* AI Prompt Input */}
+        {showPromptInput && (
+          <div style={{ padding: '6px 10px', backgroundColor: '#11111b', borderTop: '1px solid #45475a' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onPointerDown={stopEvent}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') handleGenerate(aiPrompt || undefined)
+                  if (e.key === 'Escape') setShowPromptInput(false)
+                }}
+                placeholder="Describe what code to generate... (Enter to submit)"
+                autoFocus
+                style={{
+                  flex: 1,
+                  padding: '6px 10px',
+                  backgroundColor: '#181825',
+                  color: '#cdd6f4',
+                  border: '1px solid #45475a',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  outline: 'none',
+                }}
+              />
+              <button
+                onClick={() => handleGenerate(aiPrompt || undefined)}
+                onPointerDown={stopEvent}
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#a6e3a1',
+                  color: '#1e1e2e',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 11,
+                }}
+              >
+                Go
+              </button>
+              <button
+                onClick={() => setShowPromptInput(false)}
+                onPointerDown={stopEvent}
+                style={{
+                  padding: '6px 8px',
+                  backgroundColor: '#45475a',
+                  color: '#cdd6f4',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Terminal output */}

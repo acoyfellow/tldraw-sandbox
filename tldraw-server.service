@@ -7,6 +7,7 @@ Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/tldraw-sandbox
 Environment=PATH=/home/exedev/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/exedev/tldraw-sandbox/.env
 ExecStart=/home/exedev/.local/share/fnm/aliases/default/bin/node server.js
 Restart=always
 RestartSec=3
