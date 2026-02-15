@@ -1,23 +1,23 @@
 // TLDraw Sandbox Server with Claude AI Integration
-// Run with: ANTHROPIC_API_KEY=your-key node server.js
+// Supports both Anthropic API and OpenRouter
 
 import http from 'http';
 import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import Anthropic from '@anthropic-ai/sdk';
 
 const PORT = 8787;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY;
 
-// Initialize Anthropic client if API key is available
-let anthropic = null;
-if (ANTHROPIC_API_KEY) {
-  anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-  console.log('✅ Claude AI enabled');
+// Detect API type
+const isOpenRouter = API_KEY?.startsWith('sk-or-');
+const aiEnabled = !!API_KEY;
+
+if (aiEnabled) {
+  console.log(`✅ Claude AI enabled via ${isOpenRouter ? 'OpenRouter' : 'Anthropic'}`);
 } else {
-  console.log('⚠️  No ANTHROPIC_API_KEY set - using sample code generation');
+  console.log('⚠️  No API key set - using sample code generation');
 }
 
 const corsHeaders = {
@@ -79,13 +79,7 @@ async function executeCode(code) {
   }
 }
 
-// Generate code using Claude AI
-async function generateWithClaude(prompt) {
-  if (!anthropic) {
-    return null; // Fall back to samples
-  }
-
-  const systemPrompt = `You are a code generator for a sandbox terminal environment.
+const systemPrompt = `You are a code generator for a sandbox terminal environment.
 Generate clean, runnable JavaScript/Node.js code based on the user's request.
 The code should:
 - Use console.log() for output
@@ -97,24 +91,82 @@ The code should:
 
 Respond ONLY with the code, no explanations or markdown code blocks.`;
 
+// Generate code using Claude AI via OpenRouter
+async function generateWithOpenRouter(prompt) {
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      messages: [
-        {
-          role: 'user',
-          content: prompt || 'Generate an interesting JavaScript code snippet that demonstrates a useful programming concept. Be creative!'
-        }
-      ],
-      system: systemPrompt,
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://tldraw-sandbox.exe.dev',
+        'X-Title': 'TLDraw Sandbox',
+      },
+      body: JSON.stringify({
+        model: 'anthropic/claude-opus-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt || 'Generate an interesting JavaScript code snippet that demonstrates a useful programming concept. Be creative!' }
+        ],
+        max_tokens: 1024,
+      }),
     });
 
-    const code = message.content[0].text;
-    return code;
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('OpenRouter error:', error);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || null;
   } catch (error) {
-    console.error('Claude API error:', error.message);
+    console.error('OpenRouter API error:', error.message);
     return null;
+  }
+}
+
+// Generate code using Claude AI (direct Anthropic)
+async function generateWithAnthropic(prompt) {
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: prompt || 'Generate an interesting JavaScript code snippet that demonstrates a useful programming concept. Be creative!' }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Anthropic error:', error);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.content?.[0]?.text || null;
+  } catch (error) {
+    console.error('Anthropic API error:', error.message);
+    return null;
+  }
+}
+
+async function generateWithClaude(prompt) {
+  if (!aiEnabled) return null;
+  
+  if (isOpenRouter) {
+    return generateWithOpenRouter(prompt);
+  } else {
+    return generateWithAnthropic(prompt);
   }
 }
 
@@ -157,7 +209,7 @@ const server = http.createServer(async (req, res) => {
     // Generate code with AI
     if (url.pathname === '/generate' && req.method === 'POST') {
       const { prompt } = JSON.parse(body || '{}');
-      console.log(`[${new Date().toISOString()}] Generate request: "${prompt || 'random'}"`);      
+      console.log(`[${new Date().toISOString()}] Generate: "${(prompt || 'random').slice(0, 50)}"`);
       
       // Try Claude first
       let code = await generateWithClaude(prompt);
@@ -165,9 +217,9 @@ const server = http.createServer(async (req, res) => {
       // Fall back to samples if Claude unavailable
       if (!code) {
         code = sampleCode[Math.floor(Math.random() * sampleCode.length)];
-        console.log('  Using sample code (Claude unavailable)');
+        console.log('  -> Using sample code');
       } else {
-        console.log('  Generated with Claude AI');
+        console.log('  -> Generated with Claude');
       }
       
       res.writeHead(200, corsHeaders);
@@ -180,7 +232,8 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify({ 
         status: 'ok', 
-        claudeEnabled: !!anthropic,
+        aiEnabled,
+        aiProvider: isOpenRouter ? 'openrouter' : 'anthropic',
         timestamp: new Date().toISOString() 
       }));
       return;
