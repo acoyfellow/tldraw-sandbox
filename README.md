@@ -1,136 +1,82 @@
 # TLDraw Sandbox
 
-A TLDraw-based infinite canvas with integrated Cloudflare Sandbox terminals. Write and execute code directly on the canvas!
+**An infinite canvas with AI-powered code terminals.** Write prompts, generate code with AI, and execute it instantly in sandboxed terminals—all on a TLDraw canvas.
+
+![TLDraw Sandbox](screenshot.png)
 
 ## Features
 
-- **Interactive Terminal Shapes**: Create terminal nodes on the TLDraw canvas
-- **Cloudflare Sandbox Execution**: Secure, isolated code execution via Cloudflare Workers
-- **AI Code Generation**: Generate code snippets (ready for Claude/OpenAI integration)
-- **Beautiful Terminal UI**: Catppuccin Mocha theme with xterm.js
-- **Full TLDraw Features**: Drawing, shapes, text, and all standard TLDraw tools
-- **Local/Cloud Toggle**: Switch between local and Cloudflare execution
+- 🎨 **Infinite Canvas** — Built on TLDraw's powerful drawing SDK
+- 🤖 **AI Code Generation** — Describe what you want, get working code
+- ⚡ **Instant Execution** — Run code safely in isolated sandboxes
+- 🖥️ **Beautiful Terminals** — xterm.js with Catppuccin Mocha theme
+- 🔄 **Live Output** — See results in real-time
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+git clone https://github.com/anthropics/tldraw-sandbox.git
+cd tldraw-sandbox
 npm install
 
-# Start the local sandbox server (port 8787)
+# Start the sandbox server
 npm run server
 
-# In another terminal, start the frontend (port 8000)
+# In another terminal, start the frontend
 npm run dev
 ```
 
-Or run both together:
+Open http://localhost:8000
+
+## How It Works
+
+1. **Click 🤖 AI** — Opens prompt input
+2. **Describe your code** — "fibonacci with memoization", "binary search tree", etc.
+3. **Press Enter** — AI generates the code
+4. **Click ▶ Run** — Executes in a sandboxed environment
+5. **See output** — Results appear in the terminal
+
+## Configuration
+
+### AI Provider
+
+Set your API key in `.env`:
+
 ```bash
-npm run dev:all
+# OpenRouter (supports multiple models)
+ANTHROPIC_API_KEY=sk-or-v1-...
+
+# Or direct Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Visit http://localhost:8000
+Change the model in `server.js`:
 
-## Using Terminals
-
-1. A terminal is created automatically on load
-2. Write code in the dark code editor area
-3. Click **▶ Run** to execute via the sandbox
-4. Click **🤖 AI** to generate sample code
-5. Click **Clear** to reset terminal output
-6. Toggle **☁️ CF / 💻 Local** to switch execution modes
+```javascript
+model: 'meta-llama/llama-3.3-70b-instruct'  // Current
+model: 'anthropic/claude-3.5-sonnet'         // Alternative
+model: 'google/gemini-2.0-flash'             // Alternative
+```
 
 ## Architecture
 
 ```
 tldraw-sandbox/
 ├── src/
-│   ├── TerminalShape.tsx  # Custom TLDraw shape for terminals
-│   ├── TerminalTool.ts    # Tool for creating terminals
-│   └── App.tsx            # Main TLDraw application
-├── server.js              # Local sandbox server (for testing)
-└── worker/
-    ├── src/index.ts       # Cloudflare Worker with Sandbox SDK
-    └── wrangler.toml      # Worker configuration
-```
-
-## Deploying to Cloudflare
-
-1. Set up a Cloudflare account and enable Workers
-
-2. Deploy the worker:
-```bash
-cd worker
-npm install
-npx wrangler deploy
-```
-
-3. Update the frontend to use your worker URL:
-```bash
-# Create .env.local
-echo "VITE_WORKER_URL=https://your-worker.your-subdomain.workers.dev" > .env.local
-```
-
-4. Build and deploy the frontend to your preferred host.
-
-## API Endpoints
-
-### POST /execute
-Execute code in the sandbox.
-
-```json
-{
-  "code": "console.log('Hello!');",
-  "sandboxId": "unique-sandbox-id"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "stdout": "Hello!\n",
-  "stderr": "",
-  "exitCode": 0
-}
-```
-
-### POST /generate
-Generate AI code (placeholder - integrate with your AI provider).
-
-### GET /health
-Health check endpoint.
-
-## Integrating Real AI
-
-Replace the `/generate` endpoint in `worker/src/index.ts` or `server.js` with calls to:
-- Claude API
-- OpenAI API
-- Any other LLM
-
-Example with Claude:
-```typescript
-const response = await fetch('https://api.anthropic.com/v1/messages', {
-  method: 'POST',
-  headers: {
-    'x-api-key': env.ANTHROPIC_API_KEY,
-    'content-type': 'application/json',
-  },
-  body: JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  }),
-});
+│   ├── TerminalShape.tsx   # Custom TLDraw terminal shape
+│   ├── TerminalTool.ts     # Tool for creating terminals  
+│   └── App.tsx             # Main application
+├── server.js               # Sandbox execution server
+└── worker/                 # Cloudflare Worker (optional)
 ```
 
 ## Tech Stack
 
-- [TLDraw](https://tldraw.com) - Infinite canvas SDK
-- [xterm.js](https://xtermjs.org) - Terminal emulator
-- [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) - Secure code execution
-- [Vite](https://vitejs.dev) - Build tool
-- [React](https://react.dev) - UI framework
+- [TLDraw](https://tldraw.com) — Infinite canvas SDK
+- [xterm.js](https://xtermjs.org) — Terminal emulator
+- [OpenRouter](https://openrouter.ai) — AI model gateway
+- [Vite](https://vitejs.dev) — Build tool
+- [React](https://react.dev) — UI framework
 
 ## License
 
