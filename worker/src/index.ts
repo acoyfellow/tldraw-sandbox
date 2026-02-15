@@ -1,4 +1,6 @@
-const OPENROUTER_API_KEY = "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";
+interface Env {
+  OPENROUTER_API_KEY: string;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,12 +16,12 @@ const systemPrompt = `You are a code generator. Generate clean, runnable JavaScr
 - NO external packages
 - Respond ONLY with code, no markdown.`;
 
-async function generateCode(prompt?: string): Promise<string | null> {
+async function generateCode(apiKey: string, prompt?: string): Promise<string | null> {
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -42,7 +44,6 @@ async function generateCode(prompt?: string): Promise<string | null> {
   }
 }
 
-// Simple in-worker JS execution (limited but works for demos)
 function executeCode(code: string, inputData?: string): { success: boolean; stdout: string; error?: string } {
   try {
     const logs: string[] = [];
@@ -63,7 +64,7 @@ function executeCode(code: string, inputData?: string): { success: boolean; stdo
 }
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
@@ -79,7 +80,7 @@ export default {
 
       if (url.pathname === '/generate' && request.method === 'POST') {
         const { prompt } = await request.json() as any;
-        const code = await generateCode(prompt);
+        const code = await generateCode(env.OPENROUTER_API_KEY, prompt);
         if (code) {
           return Response.json({ success: true, code }, { headers: corsHeaders });
         }
