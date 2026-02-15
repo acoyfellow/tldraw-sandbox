@@ -201,10 +201,19 @@ const server = http.createServer(async (req, res) => {
   try {
     // Execute code
     if (url.pathname === '/execute' && req.method === 'POST') {
-      const { code, sandboxId } = JSON.parse(body);
-      console.log(`[${new Date().toISOString()}] Execute for sandbox: ${sandboxId}`);
+      const { code, sandboxId, inputData } = JSON.parse(body);
+      console.log(`[${new Date().toISOString()}] Execute for sandbox: ${sandboxId}${inputData ? ' (with input)' : ''}`);
       
-      const result = await executeCode(code);
+      // Inject $input into the code
+      let fullCode = code;
+      if (inputData) {
+        const inputSetup = `const $input = ${JSON.stringify(inputData)};\ntry { if (typeof $input === 'string') $input = JSON.parse($input); } catch(e) {}\n`;
+        fullCode = inputSetup + code;
+      } else {
+        fullCode = `const $input = undefined;\n` + code;
+      }
+      
+      const result = await executeCode(fullCode);
       
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify(result));

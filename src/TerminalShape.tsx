@@ -27,6 +27,7 @@ declare module 'tldraw' {
       isRunning: boolean
       title: string
       sandboxId: string
+      lastResult: string  // Output to pass to connected terminals
     }
   }
 }
@@ -34,7 +35,7 @@ declare module 'tldraw' {
 export type ITerminalShape = TLShape<typeof TERMINAL_SHAPE_TYPE>
 
 // API functions for Cloudflare Sandbox
-async function executeCode(code: string, sandboxId: string): Promise<{
+async function executeCode(code: string, sandboxId: string, inputData?: string): Promise<{
   success: boolean
   stdout?: string
   stderr?: string
@@ -44,13 +45,13 @@ async function executeCode(code: string, sandboxId: string): Promise<{
     const response = await fetch(`${WORKER_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, sandboxId }),
+      body: JSON.stringify({ code, sandboxId, inputData }),
     })
     return await response.json()
   } catch (error) {
     // Fallback to local execution if worker is not available
     console.warn('Worker not available, using local execution:', error)
-    return executeLocally(code)
+    return executeLocally(code, inputData)
   }
 }
 
@@ -70,20 +71,36 @@ async function generateCode(prompt?: string): Promise<{ success: boolean; code?:
 }
 
 // Fallback local execution
-function executeLocally(code: string): { success: boolean; stdout?: string; stderr?: string; error?: string } {
+function executeLocally(code: string, inputData?: string): { success: boolean; stdout?: string; stderr?: string; error?: string } {
   try {
     const output: string[] = []
+    let lastValue: unknown = undefined
     const mockConsole = {
       log: (...args: unknown[]) => {
-        output.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '))
+        const line = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')
+        output.push(line)
+        lastValue = args.length === 1 ? args[0] : args
       },
       error: (...args: unknown[]) => {
         output.push('[ERROR] ' + args.map(a => String(a)).join(' '))
       },
     }
-    const fn = new Function('console', code)
-    fn(mockConsole)
-    return { success: true, stdout: output.join('\n') }
+    // Parse input data if provided
+    let $input: unknown = undefined
+    if (inputData) {
+      try {
+        $input = JSON.parse(inputData)
+      } catch {
+        $input = inputData
+      }
+    }
+    const fn = new Function('console', '$input', code)
+    const result = fn(mockConsole, $input)
+    if (result !== undefined) lastValue = result
+    const stdout = output.join('\n')
+    // Append last value as JSON for piping
+    const resultStr = lastValue !== undefined ? JSON.stringify(lastValue) : ''
+    return { success: true, stdout, stderr: resultStr }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
@@ -499,17 +516,19 @@ export class TerminalShapeUtil extends BaseBoxShapeUtil<ITerminalShape> {
     isRunning: T.boolean,
     title: T.string,
     sandboxId: T.string,
+    lastResult: T.string,
   }
 
   getDefaultProps(): ITerminalShape['props'] {
     return {
       w: 500,
       h: 450,
-      code: '// Write your code here\nconsole.log("Hello from Cloudflare Sandbox!");',
+      code: '// Write your code here\n// Use $input to access data from connected terminals\nconsole.log("Hello from Cloudflare Sandbox!");',
       output: [],
       isRunning: false,
       title: 'Sandbox Terminal',
       sandboxId: `sandbox-${Math.random().toString(36).slice(2, 8)}`,
+      lastResult: '',
     }
   }
 
