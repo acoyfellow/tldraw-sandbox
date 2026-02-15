@@ -103,12 +103,12 @@ async function generateWithOpenRouter(prompt) {
         'X-Title': 'TLDraw Sandbox',
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-4',
+        model: 'meta-llama/llama-3.3-70b-instruct',  // Strong Llama model
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt || 'Generate an interesting JavaScript code snippet that demonstrates a useful programming concept. Be creative!' }
         ],
-        max_tokens: 1024,
+        max_tokens: 512,
       }),
     });
 
@@ -119,7 +119,12 @@ async function generateWithOpenRouter(prompt) {
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
+    let code = data.choices?.[0]?.message?.content || null;
+    // Strip markdown code blocks if present
+    if (code) {
+      code = code.replace(/^```(?:javascript|js)?\n?/i, '').replace(/\n?```$/i, '').trim();
+    }
+    return code;
   } catch (error) {
     console.error('OpenRouter API error:', error.message);
     return null;
