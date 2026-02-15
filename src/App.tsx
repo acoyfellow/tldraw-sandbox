@@ -14,7 +14,7 @@ import 'tldraw/tldraw.css'
 import { TerminalShapeUtil, TERMINAL_SHAPE_TYPE, ITerminalShape } from './TerminalShape'
 import { TerminalTool } from './TerminalTool'
 
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787'
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://tldraw-sandbox-api.coy.workers.dev'
 
 // Execute code via API
 async function executeCodeAPI(code: string, sandboxId: string, inputData?: string) {

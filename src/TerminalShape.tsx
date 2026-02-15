@@ -11,7 +11,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
 // Cloudflare Worker API URL - change this to your deployed worker URL
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787'
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://tldraw-sandbox-api.coy.workers.dev'
 
 // Shape type name
 const TERMINAL_SHAPE_TYPE = 'terminal' as const
